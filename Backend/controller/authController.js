@@ -97,19 +97,19 @@ const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,25}$/;
 
             //send cookies token in DB
             res.cookie('accessToken', accessToken, {
-                maxAge: 1000*60*60*24,
+                maxAge: 30*60*60*24,
                 httpOnly: true 
             } );
 
             res.cookie('refreshToken', refreshToken,{
-                maxAge: 1000*60*60*24,
+                maxAge: 600*60*60*24,
                 httpOnly: true 
             });
 
 
             //6. response send
             const userDto = new UserDTO(user);
-            return res.status(201).json({userDto, auth: true})
+            return res.status(201).json({user: userDto, auth: true})
         },
         async login(req, res, next) {
             //1. Validate user input
@@ -199,7 +199,7 @@ const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,25}$/;
 
 
             const userDto = new UserDTO(user);
-            return res.status(200).json({userDto, auth:true});
+            return res.status(200).json({user: userDto, auth:true});
 
         },
         //logout
@@ -209,7 +209,7 @@ const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,25}$/;
             const {refreshToken} = req.cookies;
 
             try {
-                await RefreshToken .deleteOne({token:refreshToken});
+                await RefreshToken.deleteOne({token:refreshToken});
             } 
             catch (error) {
                 return error(next);
@@ -223,6 +223,7 @@ const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,25}$/;
             res.status(200).json({user:null, auth:false})
             
         },
+        
          async refresh(req, res, next){
         // 1. get refreshToken from cookies
         // 2. verify refreshToken

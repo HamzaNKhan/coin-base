@@ -1,233 +1,218 @@
-const Joi = require('joi');
-const { validate } = require('../models/blogs');
-const fs = require('fs');
-const Blog = require('../models/blogs');
-const Comment = require('../models/comment');
-const {BACKEND_SERVER_PATH} = require('../config/index');
-const BlogDTO = require('../dto/blog');
+const Joi = require("joi");
+const { validate } = require("../models/blogs");
+const fs = require("fs");
+const Blog = require("../models/blogs");
+const Comment = require("../models/comment");
+const { BACKEND_SERVER_PATH } = require("../config/index");
+const BlogDTO = require("../dto/blog");
 const BlogDetailsDTO = require("../dto/blogDetails");
-
-
 
 const mongodbIdPattern = /^[0-9a-fA-F]{24}$/;
 
+const blogController = {
+  async create(req, res, next) {
+    //1. validate req body
+    //2. handle photo storage, naming
+    //3. add to db
+    //4. response
 
-const blogController={
+    //client side -> base64 encoded string -> decode -> store -> save photopath in DB
+    const createBlogSchema = Joi.object({
+      title: Joi.string().required(),
+      author: Joi.string().regex(mongodbIdPattern).required(),
+      content: Joi.string().required(),
+      photo: Joi.string().required(),
+    });
 
-    async create(req,res,next){
-        //1. validate req body
-        //2. handle photo storage, naming
-        //3. add to db
-        //4. response
+    const { error } = createBlogSchema.validate(req.body);
 
-        
-        //client side -> base64 encoded string -> decode -> store -> save photopath in DB
-        const createBlogSchema = Joi.object({
-            title: Joi.string().required(),
-            author:Joi.string().regex(mongodbIdPattern).required(),
-            content: Joi.string().required(),
-            photo: Joi.string().required()
-        })
+    if (error) {
+      return next(error);
+    }
 
-        const {error} = createBlogSchema.validate(req.body);
+    const { title, author, content, photo } = req.body;
 
-        if (error){
+    //read as buffer
 
-            return next(error);
-        }
+    //replace is removing meta data and extension of image file
+    const buffer = Buffer.from(
+      photo.replace(/^data:image\/(png|jpg|jpeg);base64,/, ""),
+      "base64"
+    );
 
-        const {title, author, content, photo} = req.body;
+    //alot a random name
+    const imagePath = `${Date.now()}-${author}.png`;
 
-        //read as buffer
+    //save locally
+    try {
+      fs.writeFileSync(`Storage/${imagePath}`, buffer);
+    } catch (error) {
+      return next(error);
+    }
 
-        //replace is removing meta data and extension of image file 
-        const buffer = Buffer.from(photo.replace(/^data:image\/(png|jpg|jpeg);base64,/, ""), 'base64');
+    //save blog in DB
+    let newBlog;
+    try {
+      newBlog = new Blog({
+        title,
+        author,
+        content,
+        photoPath: `${BACKEND_SERVER_PATH}/Storage/${imagePath}`,
+      });
 
-        //alot a random name
-        const imagePath = `${Date.now()}-${author}.png`;
+      await newBlog.save();
+    } catch (error) {
+      return next(error);
+    }
 
-        //save locally
-        try {           
+    const blogDto = new BlogDTO(newBlog);
 
-            fs.writeFileSync(`Storage/${imagePath}`, buffer);
+    return res.status(201).json({ blog: blogDto });
+  },
+  async getAll(req, res, next) {
+    try {
+      const blogs = await Blog.find({});
 
-        } catch (error) {
+      const blogsDto = [];
 
-            return next(error) 
-        }
+      for (let i = 0; i < blogs.length; i++) {
+        const dto = new BlogDTO(blogs[i]);
+        blogsDto.push(dto);
+      }
 
-        //save blog in DB
-        let newBlog;
-        try {
-            newBlog = new Blog({
-                title,
-                author,
-                content,
-                photoPath: `${BACKEND_SERVER_PATH}/storage/${imagePath}`
-            });
+      return res.status(200).json({ blogs: blogsDto });
+    } catch (error) {
+      return next(error);
+    }
+  },
 
-            await newBlog.save();
-
-        } catch (error) {
-
-            return next(error)   
-        }
-
-        const blogDto = new BlogDTO(newBlog);
-
-        return res.status(201).json({blog: blogDto});
-
-
-
-    },
-    async getAll(req,res,next){
-
-        try {
-            const blogs = await Blog.find({});
-            
-            const blogsDto = [];
-
-            for(i=0; i<blogs.length; i++){
-                const dto = new BlogDTO(blogs[i]);
-                blogsDto.push(dto);
-            }
-
-            return res.status(200).json({blogs:blogsDto})
-
-        } catch (error) {
-
-            return next(error)
-            
-        }
-    },
-    async getById(req,res,next){
-        // validate id
+  async getById(req, res, next) {
+    // validate id
     // response
 
     const getByIdSchema = Joi.object({
-        id: Joi.string().regex(mongodbIdPattern).required(),
-      });
-  
-      const { error } = getByIdSchema.validate(req.params);
-  
-      if (error) {
-        return next(error);
-      }
-  
-      let blog;
-  
-      const { id } = req.params;
-  
+      id: Joi.string().regex(mongodbIdPattern).required(),
+    });
+
+    const { error } = getByIdSchema.validate(req.params);
+
+    if (error) {
+      return next(error);
+    }
+
+    let blog;
+
+    const { id } = req.params;
+
+    try {
+      blog = await Blog.findOne({ _id: id }).populate("author");
+    } catch (error) {
+      return next(error);
+    }
+
+    const blogDto = new BlogDetailsDTO(blog);
+
+    return res.status(200).json({ blog: blogDto });
+  },
+  async update(req, res, next) {
+    //validate
+
+    const updateBlogSchema = Joi.object({
+      title: Joi.string(),
+      content: Joi.string().required(),
+      author: Joi.string().regex(mongodbIdPattern).required(),
+      blogId: Joi.string().regex(mongodbIdPattern).required(),
+      photo: Joi.string(),
+    });
+
+    const { error } = updateBlogSchema.validate(req.body);
+
+    if (error) {
+      return next(error);
+    }
+
+    const { title, content, author, blogId, photo } = req.body;
+
+    let blog;
+
+    try {
+      blog = await Blog.findOne({ _id: blogId });
+    } catch (error) {
+      return next(error);
+    }
+
+    //delete previous photo
+    //save new photo
+    if (photo) {
+      let previousPhoto = blog.photoPath;
+
+      const previousPhotoName = previousPhoto.split("/").pop();
+      //delete photo
+      fs.unlinkSync(`storage/${previousPhotoName}`);
+
+      //read as buffer
+
+      //replace is removing meta data and extension of image file
+      const buffer = Buffer.from(
+        photo.replace(/^data:image\/(png|jpg|jpeg);base64,/, ""),
+        "base64"
+      );
+
+      //alot a random name
+      const imagePath = `${Date.now()}-${author}.png`;
+
+      //save locally
       try {
-        blog = await Blog.findOne({ _id: id }).populate('author');
+        fs.writeFileSync(`Storage/${imagePath}`, buffer);
       } catch (error) {
         return next(error);
       }
-  
-      const blogDto = new BlogDetailsDTO(blog);
-  
-      return res.status(200).json({ blog: blogDto});
-    },
-    async update(req,res,next){
-        //validate
-        
-        const updateBlogSchema = Joi.object({
-            title: Joi.string(),
-            content: Joi.string().required(),
-            author: Joi.string().regex(mongodbIdPattern).required(),
-            blogId: Joi.string().regex(mongodbIdPattern).required(),
-            photo: Joi.string()
-        })
 
-        const {error} = updateBlogSchema.validate(req.body);
-
-        if (error){
-            return next(error)
+      await Blog.updateOne(
+        { _id: blogId },
+        {
+          title,
+          content,
+          photoPath: `${BACKEND_SERVER_PATH}/storage/${imagePath}`,
         }
-
-        const {title, content, author, blogId, photo} = req.body;
-
-        
-        let blog;
-        
-        try {
-            blog = await Blog.findOne({_id:blogId});
-            
-        } catch (error) {
-
-            return next(error)
+      );
+    } else {
+      await Blog.updateOne(
+        { _id: blogId },
+        {
+          title,
+          content,
         }
-        
-        //delete previous photo
-        //save new photo
-        if(photo){
-            let previousPhoto = blog.photoPath;
+      );
+    }
 
-            const previousPhotoName = previousPhoto.split('/').pop();
-            //delete photo
-            fs.unlinkSync(`storage/${previousPhotoName}`);
+    return res.status(200).json({ message: "Blog Updated" });
+  },
+  async delete(req, res, next) {
+    //validate ID
+    //delete ID
+    // delete comments on the blog
 
-            //read as buffer
+    const deleteBlogSchema = Joi.object({
+      id: Joi.string().regex(mongodbIdPattern).required(),
+    });
 
-            //replace is removing meta data and extension of image file 
-            const buffer = Buffer.from(photo.replace(/^data:image\/(png|jpg|jpeg);base64,/, ""), 'base64');
+    const { error } = deleteBlogSchema.validate(req.params);
+    if (error) {
+      return next(error);
+    }
+    const { id } = req.params;
 
-            //alot a random name
-            const imagePath = `${Date.now()}-${author}.png`;
+    try {
+      await Blog.deleteOne({ _id: id });
 
-            //save locally
-            try {           
+      await Comment.deleteMany({ blog: id });
+    } catch (error) {
+      return next(error);
+    }
 
-                fs.writeFileSync(`Storage/${imagePath}`, buffer);
-
-            } catch (error) {
-                return next(error) 
-            }
-
-            await Blog.updateOne({_id:blogId},
-                {
-                title,
-                content,
-                photoPath: `${BACKEND_SERVER_PATH}/storage/${imagePath}`
-            })
-                        
-        }
-        else{
-            await Blog.updateOne({_id:blogId},
-            {
-                title,
-                content,
-            });
-
-        }
-
-        return res.status(200).json({message: 'Blog Updated'});
-    },
-    async delete(req,res,next){
-        //validate ID
-        //delete ID
-        // delete comments on the blog
-        
-        const deleteBlogSchema = Joi.object({
-            id: Joi.string().regex(mongodbIdPattern).required(),
-          });
-
-          const {error} = deleteBlogSchema.validate(req.params);
-          if (error){return next(error);}
-          const {id} = req.params;
-
-          try {
-                await Blog.deleteOne({_id:id});
-
-                await Comment.deleteMany({blog:id});
-
-          } catch (error) {
-            return next(error);
-          }
-
-          res.status(201).json({message: "Blog Deleted"});
-    },
-
-}
+    res.status(201).json({ message: "Blog Deleted" });
+  },
+};
 
 module.exports = blogController;

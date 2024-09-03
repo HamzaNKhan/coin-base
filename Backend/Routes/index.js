@@ -26,7 +26,7 @@ router.post('/login', authController.login)
 router.post('/logout', auth , authController.logout)
 
 //refresh
-router.post('/refresh', authController.refresh);
+router.get('/refresh', authController.refresh);
 
 
 //blog
